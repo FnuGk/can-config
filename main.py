@@ -16,7 +16,8 @@ class Define(object):
 
 
 class Config(object):
-    def __init__(self, baudrate, prescaler, clks_pr_bit, Tbit, Tsyns, Tprs, Tph1, Tph2, Tsjw, error_rate):
+    def __init__(self, cpu_freq, baudrate, prescaler, clks_pr_bit, Tbit, Tsyns, Tprs, Tph1, Tph2, Tsjw, error_rate):
+        self.cpu_freq = cpu_freq
         self.baudrate = baudrate
         self.prescaler = prescaler
         self.clks_pr_bit = clks_pr_bit
@@ -47,6 +48,40 @@ class Config(object):
             Define("CAN_SJW", self.Tsjw),
             Define("CAN_ERR_RATE", self.error_rate),
         ]
+
+    def create_header(self, name):
+        name = name.upper().replace(" ", "_")
+        header_start = "\n".join([
+            "/**",
+            " * " + datetime.datetime.now().strftime('%c'),
+            " * This file is machine generated and should not be altered by hand.",
+            " */",
+            "\n",
+            "#ifndef {}_H".format(name),
+            "#define {}_H".format(name),
+            "\n"
+        ])
+
+        encaps_start = "#if F_CPU == {}\n\n".format(self.cpu_freq)
+
+        defines = "".join(map(str, self.header_defs()))
+
+        reg_vals ="".join(map(str, [
+            Define("CANBT1_VALUE", "(CAN_PRESCALER-1)<<BRP0"),
+            Define("CANBT2_VALUE", "((CAN_TPRS-1)<<PRS0) | ((CAN_SJW-1)<<SJW0)"),
+            Define("CANBt3_VALUE", "((CAN_TPH1-1)<<PHS10) | ((CAN_TPH2-1)<<PHS20)"),
+        ]))
+
+        encaps_end = "\n#endif /* {} */\n".format(encaps_start[:-3])
+
+        header_end = "\n".join([
+            "\n"
+            "#endif /* {}_H */".format(name),
+        ])
+
+        return header_start + encaps_start + defines + reg_vals + encaps_end + header_end
+
+
 
 def get_config(baudrate, cpu_freq):
     valid_configs = []
@@ -79,7 +114,7 @@ def get_config(baudrate, cpu_freq):
 
         if error_rate < min_err_rate:
             valid_configs.append(
-                Config(baudrate, prescaler, clks_pr_bit, Tbit, Tsyns, Tprs, Tph1, Tph2, Tsjw, error_rate))
+                Config(cpu_freq, baudrate, prescaler, clks_pr_bit, Tbit, Tsyns, Tprs, Tph1, Tph2, Tsjw, error_rate))
 
     return valid_configs
 
@@ -92,41 +127,6 @@ def best_error_rate(baudrate, cpu_freq):
         return sorted(confs, key=lambda config: config.error_rate)[0]
 
 
-def make_header(baud, cpu_freq, name):
-    name = name.upper().replace(" ", "_")
-    header_start = "\n".join([
-        "/**",
-        " * " + datetime.datetime.now().strftime('%c'),
-        " * This file is machine generated and should not be altered by hand.",
-        " */",
-        "\n",
-        "#ifndef {}_H".format(name),
-        "#define {}_H".format(name),
-        "\n"
-    ])
-
-    encaps_start = "#if F_CPU == {}\n\n".format(cpu_freq)
-
-    conf = best_error_rate(baud, cpu_freq)
-
-    conf_defs = "".join(map(str, conf.header_defs()))
-
-    reg_vals ="".join(map(str, [
-        Define("CANBT1_VALUE", "(CAN_PRESCALER-1)<<BRP0"),
-        Define("CANBT2_VALUE", "((CAN_TPRS-1)<<PRS0) | ((CAN_SJW-1)<<SJW0)"),
-        Define("CANBt3_VALUE", "((CAN_TPH1-1)<<PHS10) | ((CAN_TPH2-1)<<PHS20)"),
-    ]))
-
-    encaps_end = "\n#endif /* {} */\n".format(encaps_start[:-3])
-
-    header_end = "\n".join([
-        "\n"
-        "#endif /* {}_H */".format(name),
-    ])
-
-    return header_start + encaps_start + conf_defs + reg_vals + encaps_end + header_end
-
-
 def main():
     from argparse import ArgumentParser
     parser = ArgumentParser()
@@ -135,7 +135,9 @@ def main():
 
     args = parser.parse_args()
 
-    print(make_header(args.baudrate, args.f_cpu, "can_baud"))
+    conf = best_error_rate(args.baudrate, args.f_cpu)
+
+    print(conf.create_header("can_baud"))
 
 
 if __name__ == "__main__":
