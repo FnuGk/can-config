@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import datetime
 
 def is_even(n):
