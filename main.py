@@ -30,7 +30,7 @@ class Config(object):
         self.error_rate = error_rate
 
     def __str__(self):
-        return "baud: {} err: {}".format(self.baudrate, self.error_rate)
+        return "CAN baudrate: {} cpu frequency: {}".format(self.baudrate, self.cpu_freq)
 
     def __repr__(self):
         return self.__str__()
@@ -130,14 +130,30 @@ def best_error_rate(baudrate, cpu_freq):
 def main():
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument("--f_cpu", dest="f_cpu", help="Clock frequency of the system clock in hz", metavar="f_cpu", type=int, required=True)
-    parser.add_argument("--baudrate", dest="baudrate", help="The desired CAN baudrate", metavar="baudrate", type=int, required=True)
+    parser.add_argument("--f_cpu", dest="f_cpu", help="Clock frequency of the system clock in hz", type=int, required=True)
+    parser.add_argument("--baudrate", dest="baudrate", help="The desired CAN baudrate", type=int, required=True)
+    parser.add_argument("--config", dest="config", help="Print the configuration", action='store_true', default=False)
+    parser.add_argument("--header", dest="header", help="Generate a C header file with suitable configurations for the baudrate at the given cpu frequency", default=False, action='store_true')
 
     args = parser.parse_args()
 
     conf = best_error_rate(args.baudrate, args.f_cpu)
 
-    print(conf.create_header("can_baud"))
+    if args.header:
+        print(conf.create_header("can_baud"))
+    else:
+        print("CPU frequency {} hz, CAN baudrate {} bps, error rate: {}%".format(conf.cpu_freq, conf.baudrate, conf.error_rate))
+        if args.config:
+            print("\n\t".join([
+                "Config at Time Quantum = 1",
+                "Prescaler: {}".format(conf.prescaler),
+                "Tbit: {}".format(conf.Tbit),
+                "Sync: {}".format(conf.Tsyns),
+                "Propagation segment: {}".format(conf.Tprs),
+                "Phase Segment 1: {}".format(conf.Tph1),
+                "Phase Segment 2: {}".format(conf.Tph2),
+                "SJW: {}".format(conf.Tsjw),
+            ]))
 
 
 if __name__ == "__main__":
