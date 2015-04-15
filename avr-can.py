@@ -39,7 +39,6 @@ class Config(object):
 
     def header_defs(self):
         return [
-            Define("CAN_BAUDRATE", self.baudrate),
             Define("CAN_PRESCALER", self.prescaler),
             Define("CAN_CLKS_PR_BIT", self.clks_pr_bit),
             Define("CAN_TBIT", self.Tbit),
@@ -51,20 +50,8 @@ class Config(object):
             Define("CAN_ERR_RATE", self.error_rate),
         ]
 
-    def create_header(self, name):
-        name = name.upper().replace(" ", "_")
-        header_start = "\n".join([
-            "/**",
-            " * " + datetime.datetime.now().strftime('%c'),
-            " * This file is machine generated and should not be altered by hand.",
-            " */",
-            "\n",
-            "#ifndef {}_H".format(name),
-            "#define {}_H".format(name),
-            "\n"
-        ])
-
-        encaps_start = "#if F_CPU == {}\n\n".format(self.cpu_freq)
+    def create_header(self):
+        encaps_start = "#if CAN_BAUDRATE == {}\n\n".format(self.baudrate)
 
         defines = "".join(map(str, self.header_defs()))
 
@@ -74,15 +61,30 @@ class Config(object):
             Define("CANBt3_VALUE", "((CAN_TPH1-1)<<PHS10) | ((CAN_TPH2-1)<<PHS20)"),
         ]))
 
-        encaps_end = "\n#endif /* {} */\n".format(encaps_start[:-3])
+        encaps_end = "\n#endif /* CAN_BAUDRATE {}*/\n".format(self.baudrate)
 
-        header_end = "\n".join([
+        return encaps_start + defines + reg_vals + encaps_end + "\n"
+
+def wrap_header(contents, file_name):
+    file_name = file_name.upper().replace(" ", "_")
+    header_start = "\n".join([
+            "/**",
+            " * " + datetime.datetime.now().strftime('%c'),
+            " * This file is machine generated and should not be altered by hand.",
+            " */",
+            "\n",
+            "#ifndef {}_H".format(file_name),
+            "#define {}_H".format(file_name),
+            "\n",
+            ""
+    ])
+
+    header_end = "\n".join([
             "\n"
-            "#endif /* {}_H */".format(name),
-        ])
+            "#endif /* {}_H */".format(file_name),
+    ])
 
-        return header_start + encaps_start + defines + reg_vals + encaps_end + header_end
-
+    return header_start + contents + header_end
 
 
 def get_config(baudrate, cpu_freq):
@@ -132,30 +134,51 @@ def best_error_rate(baudrate, cpu_freq):
 def main():
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument("--f_cpu", dest="f_cpu", help="Clock frequency of the system clock in hz", type=int, required=True)
-    parser.add_argument("--baudrate", dest="baudrate", help="The desired CAN baudrate", type=int, required=True)
+    parser.add_argument("--f_cpu", dest="f_cpu", help="Clock frequency of the system clock in hz", type=int, default=8000000)
+    parser.add_argument("--baudrate", dest="baudrates", help="One or more desired CAN baudrates", type=int, required=True , nargs='*')
     parser.add_argument("--config", dest="config", help="Print the configuration", action='store_true', default=False)
     parser.add_argument("--header", dest="header", help="Generate a C header file with suitable configurations for the baudrate at the given cpu frequency", default=False, action='store_true')
 
     args = parser.parse_args()
+    confs = [best_error_rate(baudrate, args.f_cpu) for baudrate in args.baudrates]
 
-    conf = best_error_rate(args.baudrate, args.f_cpu)
+    if confs == []:
+        print("No valid baudrate config found")
+        exit(1)
+
+    zipped = zip(args.baudrates, confs)
 
     if args.header:
-        print(conf.create_header("can_baud"))
+        header = ""
+        for conf in zipped:
+            if conf[1] is None:
+                header += "\n".join([
+                    "#if CAN_BAUDRATE == {}".format(conf[0]),
+                    "#error No valid config found for {} bps CAN baudrate".format(conf[0]),
+                    "#endif /* CAN_BAUDRATE == {} */".format(conf[0]),
+                ]) + "\n"
+                continue
+            conf = conf[1]
+            header += conf.create_header()
+        print(wrap_header(header, "can_baud"))
     else:
-        print("CPU frequency {} hz, CAN baudrate {} bps, error rate: {}%".format(conf.cpu_freq, conf.baudrate, conf.error_rate))
-        if args.config:
-            print("\n\t".join([
-                "Config at Time Quantum = 1",
-                "Prescaler: {}".format(conf.prescaler),
-                "Tbit: {}".format(conf.Tbit),
-                "Sync: {}".format(conf.Tsyns),
-                "Propagation segment: {}".format(conf.Tprs),
-                "Phase Segment 1: {}".format(conf.Tph1),
-                "Phase Segment 2: {}".format(conf.Tph2),
-                "SJW: {}".format(conf.Tsjw),
-            ]))
+        for conf in zipped:
+            if conf[1] is None:
+                print("No valid config found for {} bps baudrate".format(conf[0]))
+                continue
+            conf = conf[1]
+            print("CPU frequency {} hz, CAN baudrate {} bps, error rate: {}%".format(conf.cpu_freq, conf.baudrate, conf.error_rate))
+            if args.config:
+                print("\n\t".join([
+                    "Config at Time Quantum = 1",
+                    "Prescaler: {}".format(conf.prescaler),
+                    "Tbit: {}".format(conf.Tbit),
+                    "Sync: {}".format(conf.Tsyns),
+                    "Propagation segment: {}".format(conf.Tprs),
+                    "Phase Segment 1: {}".format(conf.Tph1),
+                    "Phase Segment 2: {}".format(conf.Tph2),
+                    "SJW: {}".format(conf.Tsjw),
+                ]))
 
 
 if __name__ == "__main__":
